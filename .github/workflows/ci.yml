@@ -4,28 +4,62 @@ on:
   push:
 
 jobs:
-  ci:
-    runs-on: ubuntu-latest
-    
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Build cli
-      run: |
-        cmake . && make
-        ls -lh smolcde
-        ./smolcde || true
-      
-    - name: Set up Python
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Set up Python (Linux Only)
+      if: matrix.os == 'ubuntu-latest'
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-        
-    - name: Install Python dependencies
+
+    - name: Install Python dependencies (Linux Only)
+      if: matrix.os == 'ubuntu-latest'
       run: |
         pip install pytest scipy autograd scikit_learn tqdm
-        
-    - name: Run tests
+
+    - name: Run tests (Linux Only)
+      if: matrix.os == 'ubuntu-latest'
       run: |
+        # Move build artifacts to root for tests to find them
+        cp build/libsmolmaf.so . || true
+        cp build/smolcde . || true
+        # Make executable
+        chmod +x smolcde
         pytest
+
+    - name: Prepare Artifacts
+      shell: bash
+      run: |
+        mkdir artifacts
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          cp build/Release/smolcde.exe artifacts/smolcde-windows.exe
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+          if [ -f build/Release/smolcde ]; then
+            cp build/Release/smolcde artifacts/smolcde-macos
+          else
+            cp build/smolcde artifacts/smolcde-macos
+          fi
+        else
+          cp build/smolcde artifacts/smolcde-linux
+        fi
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: smolcde-${{ matrix.os }}
+        path: artifacts/*
