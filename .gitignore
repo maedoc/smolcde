@@ -1,0 +1,7 @@
+build/
+*.o
+__pycache__/
+*.swp
+*.swo
+.cache
+
