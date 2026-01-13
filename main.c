@@ -434,9 +434,19 @@ void cmd_train(int argc, char **argv) {
       }
     }
 
-    if (e % 1 == 0)
-      printf("Epoch %d: Avg NLL = %f\n", e, total_loss / processed_samples);
+    if (e % 1 == 0) {
+      printf("\rEpoch %d: Avg NLL = %f [", e, total_loss / processed_samples);
+      for (int i = 0; i < 50; i++) {
+        if (i < (e * 50) / epochs) {
+          printf("#");
+        } else {
+          printf(" ");
+        }
+      }
+      printf("] %d%%", (e * 100) / epochs);
+    }
   }
+  printf("\n");
 
   save_model(out_file, model);
 
