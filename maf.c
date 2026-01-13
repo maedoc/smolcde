@@ -4,6 +4,7 @@
  */
 
 #include "maf.h"
+#define _USE_MATH_DEFINES
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1185,18 +1186,18 @@ void maf_sgd_step(maf_model_t *model, const maf_grad_t *grad, float lr) {
     uint16_t C = layer->feature_dim;
     uint16_t H = layer->hidden_units;
 
-    for (uint32_t i = 0; i < H * D; i++)
+    for (uint32_t i = 0; i < (uint32_t)H * D; i++)
       layer->W1y[i] -= lr * lgrad->dW1y[i];
-    for (uint32_t i = 0; i < H * C; i++)
+    for (uint32_t i = 0; i < (uint32_t)H * C; i++)
       layer->W1c[i] -= lr * lgrad->dW1c[i];
     for (uint32_t i = 0; i < H; i++)
       layer->b1[i] -= lr * lgrad->db1[i];
 
-    for (uint32_t i = 0; i < 2 * D * H; i++)
+    for (uint32_t i = 0; i < (uint32_t)2 * D * H; i++)
       layer->W2[i] -= lr * lgrad->dW2[i];
-    for (uint32_t i = 0; i < 2 * D * C; i++)
+    for (uint32_t i = 0; i < (uint32_t)2 * D * C; i++)
       layer->W2c[i] -= lr * lgrad->dW2c[i];
-    for (uint32_t i = 0; i < 2 * D; i++)
+    for (uint32_t i = 0; i < (uint32_t)2 * D; i++)
       layer->b2[i] -= lr * lgrad->db2[i];
   }
 }

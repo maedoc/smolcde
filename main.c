@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 #define _GNU_SOURCE
 #include "maf.h"
 #include <math.h>
