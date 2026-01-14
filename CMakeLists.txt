@@ -8,7 +8,11 @@ if(MSVC)
     # Note: No "native" flag; you must pick a specific SIMD set
     add_compile_options(/arch:AVX2) 
 else()
-    add_compile_options(-Wall -Wextra -O3 -ffast-math -march=native)
+    add_compile_options(-Wall -Wextra -O3 -ffast-math)
+    option(ENABLE_NATIVE_ARCH "Enable -march=native" ON)
+    if(ENABLE_NATIVE_ARCH)
+        add_compile_options(-march=native)
+    endif()
 endif()
 
 # Shared library for Python bindings/tests

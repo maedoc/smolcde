@@ -5,35 +5,68 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build ${{ matrix.target_name }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+            target_name: linux-x86_64
+            enable_native: OFF
+          - os: ubuntu-latest
+            arch: aarch64
+            target_name: linux-aarch64
+            cross: true
+            enable_native: OFF
+          - os: macos-13
+            arch: x86_64
+            target_name: macos-x86_64
+            enable_native: OFF
+          - os: macos-14
+            arch: arm64
+            target_name: macos-arm64
+            enable_native: OFF
+          - os: windows-latest
+            arch: x86_64
+            target_name: windows-x86_64
+            enable_native: OFF
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Configure CMake
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+    - name: Install Linux Cross-compiler
+      if: matrix.cross == true
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+    - name: Configure CMake (Default)
+      if: matrix.cross != true
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_NATIVE_ARCH=${{ matrix.enable_native }}
+
+    - name: Configure CMake (Linux Cross)
+      if: matrix.cross == true
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DENABLE_NATIVE_ARCH=${{ matrix.enable_native }}
 
     - name: Build
       run: cmake --build build --config Release
 
-    - name: Set up Python (Linux Only)
-      if: matrix.os == 'ubuntu-latest'
+    - name: Set up Python (Linux Native Only)
+      if: matrix.os == 'ubuntu-latest' && matrix.cross != true
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
-    - name: Install Python dependencies (Linux Only)
-      if: matrix.os == 'ubuntu-latest'
+    - name: Install Python dependencies (Linux Native Only)
+      if: matrix.os == 'ubuntu-latest' && matrix.cross != true
       run: |
         pip install pytest scipy autograd scikit_learn tqdm
 
-    - name: Run tests (Linux Only)
-      if: matrix.os == 'ubuntu-latest'
+    - name: Run tests (Linux Native Only)
+      if: matrix.os == 'ubuntu-latest' && matrix.cross != true
       run: |
         # Move build artifacts to root for tests to find them
         cp build/libsmolmaf.so . || true
@@ -42,24 +75,44 @@ jobs:
         chmod +x smolcde
         pytest
 
-    - name: Prepare Artifacts
+    - name: Prepare Artifact
       shell: bash
       run: |
-        mkdir artifacts
-        if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          cp build/Release/smolcde.exe artifacts/smolcde-windows.exe
-        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+        mkdir -p dist
+        if [ "${{ runner.os }}" == "Windows" ]; then
+          cp build/Release/smolcde.exe dist/smolcde-${{ matrix.target_name }}.exe
+        elif [ "${{ runner.os }}" == "macOS" ]; then
           if [ -f build/Release/smolcde ]; then
-            cp build/Release/smolcde artifacts/smolcde-macos
+            cp build/Release/smolcde dist/smolcde-${{ matrix.target_name }}
           else
-            cp build/smolcde artifacts/smolcde-macos
+            cp build/smolcde dist/smolcde-${{ matrix.target_name }}
           fi
         else
-          cp build/smolcde artifacts/smolcde-linux
+          cp build/smolcde dist/smolcde-${{ matrix.target_name }}
         fi
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: smolcde-${{ matrix.os }}
-        path: artifacts/*
+        name: binary-${{ matrix.target_name }}
+        path: dist/*
+
+  package:
+    name: Assemble Artifacts
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -R artifacts
+
+      - name: Upload merged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smolcde-all-binaries
+          path: artifacts/*
