@@ -124,14 +124,15 @@ def generate_lorenz_data(n_samples=200):
     return np.array(features), np.array(params)
 
 def test_lorenz():
-    features, params = generate_lorenz_data(n_samples=300) 
+    np.random.seed(42)
+    features, params = generate_lorenz_data(n_samples=1000) 
     # Split train/test
     n_train = int(0.8 * len(features))
     X_train, Y_train = features[:n_train], params[:n_train]
     X_test, Y_test = features[n_train:], params[n_train:]
     # High dimensionality in features, low in params.
-    model = MAFEstimator(n_flows=5, hidden_units=64, param_dim=3, feature_dim=features.shape[1])
-    model.train(Y_train, X_train, use_tqdm=True)
+    model = MAFEstimator(n_flows=4, hidden_units=64, param_dim=3, feature_dim=features.shape[1])
+    model.train(Y_train, X_train, n_epochs=500, batch_size=32, learning_rate=0.0002)
     rng = anp.random.RandomState(42)
     # Evaluate on a few test samples
     n_eval = 5
