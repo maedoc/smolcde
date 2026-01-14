@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 import autograd.numpy as anp
 from autograd import grad
 from autograd.scipy.special import logsumexp
-from sklearn.datasets import make_moons
 from scipy.stats import t
 from tqdm.auto import trange
 
@@ -461,10 +460,9 @@ class MAFEstimator(ConditionalDensityEstimator):
 
         n_cond = features.shape[0]
         # Broadcast features to match number of samples
-        if n_cond != n_samples:
-            features = anp.repeat(features, n_samples, axis=0)
+        features = anp.repeat(features, n_samples, axis=0)
 
-        z = rng.randn(n_samples, self.param_dim).astype('f')
+        z = rng.randn(features.shape[0], self.param_dim).astype('f')
         x = z
 
         # Invert the flow stack
@@ -752,9 +750,9 @@ class NSFEstimator(MAFEstimator):
         if self.weights is None: raise RuntimeError("Train first")
         features = features.astype('f')
         if features.ndim == 1: features = features.reshape(1, -1)
-        if features.shape[0] != n_samples: features = anp.repeat(features, n_samples, axis=0)
+        features = anp.repeat(features, n_samples, axis=0)
 
-        z = rng.randn(n_samples, self.param_dim).astype('f')
+        z = rng.randn(features.shape[0], self.param_dim).astype('f')
         x = z 
 
         # Invert the flow stack
@@ -837,6 +835,7 @@ def generate_test_data(dataset_name: str, n_samples: int, seed: int = 42):
             params[i, :] = t.rvs(df, size=2, random_state=rng)
 
     elif dataset_name == 'moons':
+        from sklearn.datasets import make_moons
         # Feature controls the noise level
         features[:, 0] = rng.uniform(0.05, 0.2, size=n_samples)
         for i in range(n_samples):

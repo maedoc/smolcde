@@ -425,8 +425,8 @@ void maf_inverse_layer(const maf_layer_t *layer, maf_workspace_t *ws,
 
   /* Apply inverse permutation */
   for (uint16_t i = 0; i < D; i++) {
-    float *dst = &x_out[layer->inv_perm[i] * MAF_BATCH_SIZE];
-    float *src = &u[i * MAF_BATCH_SIZE];
+    float *dst = &x_out[i * MAF_BATCH_SIZE];
+    float *src = &u[layer->inv_perm[i] * MAF_BATCH_SIZE];
     for (int s = 0; s < MAF_BATCH_SIZE; s++) {
       dst[s] = src[s];
     }

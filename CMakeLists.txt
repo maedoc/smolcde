@@ -2,8 +2,13 @@ cmake_minimum_required(VERSION 3.10)
 project(smolcde C)
 set(CMAKE_C_STANDARD 99)
 
-if(NOT MSVC)
-    add_compile_options(-Wall -Wextra)
+if(MSVC)
+    # /W4 is the standard for "Wall", /fp:fast for fast-math, /O2 for O3
+    add_compile_options(/W4 /O2 /fp:fast)
+    # Note: No "native" flag; you must pick a specific SIMD set
+    add_compile_options(/arch:AVX2) 
+else()
+    add_compile_options(-Wall -Wextra -O3 -ffast-math -march=native)
 endif()
 
 # Shared library for Python bindings/tests
