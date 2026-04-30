@@ -177,7 +177,7 @@ maf_model_t *load_model_file(const char *filename) {
   FILE *f = fopen(filename, "rb");
   if (!f) {
     fprintf(stderr, "Error: Could not open model file %s\n", filename);
-    exit(1);
+    return NULL;
   }
 
   char magic[5] = {0};
@@ -185,8 +185,7 @@ maf_model_t *load_model_file(const char *filename) {
     goto error;
   if (strcmp(magic, MAGIC) != 0) {
     fprintf(stderr, "Error: Invalid file format\n");
-    fclose(f);
-    exit(1);
+    goto error;
   }
 
   uint16_t n_flows, param_dim, feature_dim, hidden;
@@ -256,12 +255,37 @@ maf_model_t *load_model_file(const char *filename) {
   w.W2c_data = g_W2c;
   w.b2_data = g_b2;
 
-  return maf_load_model(&w);
+  maf_model_t *model = maf_load_model(&w);
+
+  /* Free the temporary global buffers after maf_load_model copies them */
+  free(g_M1);   g_M1 = NULL;
+  free(g_M2);   g_M2 = NULL;
+  free(g_perm); g_perm = NULL;
+  free(g_inv_perm); g_inv_perm = NULL;
+  free(g_W1y);  g_W1y = NULL;
+  free(g_W1c);  g_W1c = NULL;
+  free(g_b1);   g_b1 = NULL;
+  free(g_W2);   g_W2 = NULL;
+  free(g_W2c);  g_W2c = NULL;
+  free(g_b2);   g_b2 = NULL;
+
+  return model;
 
 error:
   fprintf(stderr, "Error: Unexpected end of file or read error\n");
-  fclose(f);
-  exit(1);
+  /* Free any partially-allocated buffers */
+  free(g_M1);   g_M1 = NULL;
+  free(g_M2);   g_M2 = NULL;
+  free(g_perm); g_perm = NULL;
+  free(g_inv_perm); g_inv_perm = NULL;
+  free(g_W1y);  g_W1y = NULL;
+  free(g_W1c);  g_W1c = NULL;
+  free(g_b1);   g_b1 = NULL;
+  free(g_W2);   g_W2 = NULL;
+  free(g_W2c);  g_W2c = NULL;
+  free(g_b2);   g_b2 = NULL;
+  if (f) fclose(f);
+  return NULL;
 }
 
 /* ========================================================================== */
@@ -287,6 +311,7 @@ void print_help_train() {
   printf("  --epochs <int>       Training epochs (default: 100)\n");
   printf("  --lr <float>         Learning rate (default: 0.001)\n");
   printf("  --batch <int>        Batch size (default: 32)\n");
+  printf("  --seed <int>          Random seed (default: 42)\n");
   printf("  --skip-header        Skip first line of CSV files\n");
 }
 
@@ -295,6 +320,7 @@ void cmd_train(int argc, char **argv) {
        *load_file = NULL;
   int hidden = 16, blocks = 5, epochs = 100, batch_size = 32;
   float lr = 0.001f;
+  int seed = 42;
   bool skip = false;
 
   for (int i = 0; i < argc; i++) {
@@ -319,6 +345,8 @@ void cmd_train(int argc, char **argv) {
       lr = atof(argv[++i]);
     else if (!strcmp(argv[i], "--batch"))
       batch_size = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--seed"))
+      seed = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--skip-header"))
       skip = true;
   }
@@ -352,17 +380,21 @@ void cmd_train(int argc, char **argv) {
 
   printf("Training: %d samples, C=%d, D=%d\n", F->rows, F->cols, P->cols);
 
-  srand(time(NULL));
+  srand(seed);
   maf_model_t *model;
   if (load_file) {
     printf("Loading initial model from %s...\n", load_file);
     model = load_model_file(load_file);
+    if (!model) {
+      fprintf(stderr, "Error loading model from %s\n", load_file);
+      exit(1);
+    }
   } else {
     model = maf_init_random_model(blocks, P->cols, F->cols, hidden);
   }
 
   if (!model) {
-    fprintf(stderr, "Error initializing moel\n");
+    fprintf(stderr, "Error initializing model\n");
     exit(1);
   }
 
@@ -522,6 +554,10 @@ void cmd_infer(int argc, char **argv) {
   }
 
   maf_model_t *model = load_model_file(model_file);
+  if (!model) {
+    fprintf(stderr, "Error: Failed to load model from %s\n", model_file);
+    return;
+  }
   Dataset *F = load_csv(feat_file, skip);
 
   FILE *fout = fopen(out_file, "w");
