@@ -229,11 +229,12 @@ maf_workspace_t *maf_create_workspace(const maf_model_t *model) {
   ws->alpha = (float *)malloc(D * MAF_BATCH_SIZE * sizeof(float));
   ws->x = (float *)malloc(D * MAF_BATCH_SIZE * sizeof(float));
   ws->y_perm = (float *)malloc(D * MAF_BATCH_SIZE * sizeof(float));
-  ws->feat_perm = (float *)malloc(C * MAF_BATCH_SIZE * sizeof(float));
+  /* feat_perm: broadcast feature data; unused (1 byte sentinel) when feature_dim == 0 */
+  ws->feat_perm = (float *)malloc((C > 0 ? C : 1) * MAF_BATCH_SIZE * sizeof(float));
 
   /* Check allocation success */
   if (!ws->h || !ws->out || !ws->u || !ws->u_perm || !ws->mu || !ws->alpha ||
-      !ws->x || !ws->y_perm || !ws->feat_perm) {
+      !ws->x || !ws->y_perm || (C > 0 && !ws->feat_perm)) {
     maf_free_workspace(ws);
     return NULL;
   }
@@ -1131,7 +1132,7 @@ int maf_backward(const maf_model_t *model, const maf_cache_t *cache,
   /* Allocate gradient buffers for flow [D][8] */
   float *delta = (float *)malloc(D * MAF_BATCH_SIZE * sizeof(float));
   float *prev_delta = (float *)malloc(D * MAF_BATCH_SIZE * sizeof(float));
-  float *feat_perm = (float *)malloc(C * MAF_BATCH_SIZE * sizeof(float));
+  float *feat_perm = (float *)malloc((C > 0 ? C : 1) * MAF_BATCH_SIZE * sizeof(float));
 
   if (!delta || !prev_delta || !feat_perm) {
     free(delta);

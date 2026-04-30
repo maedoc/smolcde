@@ -89,7 +89,8 @@ typedef struct {
   float *x;         ///< Sampling buffer [param_dim * MAF_BATCH_SIZE]
   float *y_perm;    ///< Sampling permuted buffer [param_dim * MAF_BATCH_SIZE]
   float *feat_perm; ///< Permuted/Transposed features [feature_dim *
-                    ///< MAF_BATCH_SIZE]
+                    ///< MAF_BATCH_SIZE]; allocated as 1-byte sentinel
+                    ///< when feature_dim == 0
 } maf_workspace_t;
 
 /**
