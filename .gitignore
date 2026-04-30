@@ -5,3 +5,20 @@ __pycache__/
 *.swo
 .cache
 
+# Built binaries
+libsmolmaf.so
+smolcde
+smolcde.exe
+
+# Python venv
+env/
+.venv/
+
+# Model files
+*.maf
+
+# Temp CSV files from tests/demos
+test_*.csv
+demo_*.csv
+tmp_*.csv
+
