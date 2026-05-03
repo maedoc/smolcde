@@ -1,0 +1,26 @@
+# MNIST hyperparameter sweep — baseline then progressive improvements
+# Format: --epochs N --hidden N --blocks N --lr F --batch N
+
+# baseline
+--epochs 300 --hidden 32 --blocks 5 --lr 0.001 --batch 32
+
+# more epochs
+--epochs 600 --hidden 32 --blocks 5 --lr 0.001 --batch 32
+
+# bigger model
+--epochs 300 --hidden 64 --blocks 8 --lr 0.001 --batch 32
+
+# bigger + more epochs
+--epochs 600 --hidden 64 --blocks 8 --lr 0.001 --batch 32
+
+# even bigger
+--epochs 600 --hidden 128 --blocks 8 --lr 0.001 --batch 32
+
+# lower LR for larger model
+--epochs 600 --hidden 128 --blocks 8 --lr 0.0005 --batch 32
+
+# smaller batch (more gradient noise)
+--epochs 600 --hidden 64 --blocks 8 --lr 0.001 --batch 16
+
+# more flows
+--epochs 600 --hidden 64 --blocks 12 --lr 0.001 --batch 32

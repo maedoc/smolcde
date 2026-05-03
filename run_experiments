@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# run_experiments — Run a set of experiments and log results to a JSONL file.
+# Usage: bash run_experiments <bench_script> <logfile.jsonl> <configs_file>
+# Configs file: one line per experiment with space-separated --key value pairs
+set -euo pipefail
+
+BENCH="$1"
+LOGFILE="$2"
+CONFIGS="$3"
+
+echo "Running experiments from $CONFIGS → $LOGFILE"
+echo "============================================="
+
+while IFS= read -r line; do
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    echo ""
+    echo "--- $(date +%H:%M:%S) | $line ---"
+    set -- $line
+    result=$(bash "$BENCH" "$@" 2>/dev/null)
+    echo "$result"
+    echo "$result" >> "$LOGFILE"
+done < "$CONFIGS"
+
+echo ""
+echo "============================================="
+echo "All done. Results in $LOGFILE"
+echo "To view: cat $LOGFILE | jq -c '[.accuracy // .mae_avg, (.train_time_s|tostring) + \"s\", .epochs, .hidden, .blocks, .lr]'"

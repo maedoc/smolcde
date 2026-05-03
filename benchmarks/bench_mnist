@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# benchmark_mnist — Runs a full train + eval cycle for MNIST with given hyperparams.
+# Outputs a single JSON line with metrics to stdout.
+# Usage: bash benchmarks/bench_mnist --epochs 300 --hidden 32 --blocks 5 --lr 0.001 --batch 32 --seed 42
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CLI="${SMOLCDE_BIN:-$REPO_ROOT/smolcde}"
+PYTHON="${PYTHON:-$REPO_ROOT/env/bin/python3}"
+OUTDIR="${TMPDIR:-/tmp}/smolcde-bench-mnist-$$"
+mkdir -p "$OUTDIR"
+
+# Parse args
+EPOCHS=300; HIDDEN=32; BLOCKS=5; LR=0.001; BATCH=32; SEED=42; N_TRAIN=500; N_TEST=200; SAMPLES=64
+while [[ $# -gt 0 ]]; do
+    case "$1" in --epochs) EPOCHS="$2"; shift 2;; --hidden) HIDDEN="$2"; shift 2;;
+        --blocks) BLOCKS="$2"; shift 2;; --lr) LR="$2"; shift 2;; --batch) BATCH="$2"; shift 2;;
+        --seed) SEED="$2"; shift 2;; --train) N_TRAIN="$2"; shift 2;; --test) N_TEST="$2"; shift 2;;
+        --samples) SAMPLES="$2"; shift 2;; *) shift;;
+    esac
+done
+
+cleanup() { rm -rf "$OUTDIR"; }
+trap cleanup EXIT
+
+# ── Generate data ──
+$PYTHON -c "
+import numpy as np
+from sklearn.datasets import load_digits
+from sklearn.preprocessing import StandardScaler
+digits = load_digits()
+X = StandardScaler().fit_transform(digits.data)
+y = digits.target.astype(float)
+N = $N_TRAIN + $N_TEST
+Xtr, Xts = X[:$N_TRAIN], X[$N_TRAIN:N]
+ytr, yts = y[:$N_TRAIN], y[$N_TRAIN:N]
+rng = np.random.RandomState($SEED)
+ytr_noisy = ytr + rng.normal(0, 0.1, size=ytr.shape)
+np.savetxt('$OUTDIR/feat_train.csv', Xtr, delimiter=',', fmt='%.8f')
+np.savetxt('$OUTDIR/feat_test.csv',  Xts, delimiter=',', fmt='%.8f')
+np.savetxt('$OUTDIR/param_train.csv', ytr_noisy.reshape(-1,1), delimiter=',', fmt='%.8f')
+np.savetxt('$OUTDIR/true_test.csv',   yts.reshape(-1,1),   delimiter=',', fmt='%.0f')
+" 2>/dev/null
+
+# ── Train (capture log for NLL) ──
+TRAIN_START=$(date +%s%N)
+TRAIN_LOG=$($CLI train \
+    --features "$OUTDIR/feat_train.csv" \
+    --params   "$OUTDIR/param_train.csv" \
+    --out      "$OUTDIR/model.maf" \
+    --epochs   "$EPOCHS" --hidden "$HIDDEN" --blocks "$BLOCKS" \
+    --lr       "$LR" --batch "$BATCH" --seed "$SEED" 2>&1)
+TRAIN_END=$(date +%s%N)
+TRAIN_S=$(( (TRAIN_END - TRAIN_START) / 1000000000 ))
+
+# Extract final NLL from train output
+FINAL_NLL=$(echo "$TRAIN_LOG" | grep -oP 'NLL = \K[\-\d.]+' | tail -1 || echo "NA")
+
+# ── Infer ──
+INFER_START=$(date +%s%N)
+$CLI infer --model "$OUTDIR/model.maf" --features "$OUTDIR/feat_test.csv" \
+    --out "$OUTDIR/pred.csv" --mode stats --samples "$SAMPLES" 2>/dev/null
+INFER_END=$(date +%s%N)
+INFER_MS=$(( (INFER_END - INFER_START) / 1000000 ))
+
+# ── Evaluate ──
+EVAL=$($PYTHON -c "
+import numpy as np, csv
+means = []
+with open('$OUTDIR/pred.csv') as f:
+    for r in csv.DictReader(f):
+        if r['stat'] == 'mean': means.append(float(r['p0']))
+means = np.array(means)
+y_true = np.loadtxt('$OUTDIR/true_test.csv', delimiter=',').astype(int)
+y_pred = np.round(means).astype(int)
+acc = np.mean(y_true == y_pred)
+mae = np.mean(np.abs(y_true - means))
+print(f'{acc:.4f} {mae:.4f} {len(y_true)}')
+" 2>/dev/null)
+ACC=$(echo "$EVAL" | cut -d' ' -f1)
+MAE=$(echo "$EVAL" | cut -d' ' -f2)
+N_EVAL=$(echo "$EVAL" | cut -d' ' -f3)
+
+# ── Output JSON ──
+cat <<JSON
+{
+  "dataset": "mnist",
+  "epochs": $EPOCHS,
+  "hidden": $HIDDEN,
+  "blocks": $BLOCKS,
+  "lr": $LR,
+  "batch": $BATCH,
+  "seed": $SEED,
+  "n_train": $N_TRAIN,
+  "n_eval": $N_EVAL,
+  "accuracy": $ACC,
+  "mae": $MAE,
+  "final_nll": "$FINAL_NLL",
+  "train_time_s": $TRAIN_S,
+  "infer_time_ms": $INFER_MS
+}
+JSON

@@ -381,6 +381,14 @@ class MAFEstimator(ConditionalDensityEstimator):
     def __post_init__(self):
         super().__init__(self.param_dim, self.feature_dim)
         self.model_constants = None # For non-trainable parts like masks
+        if self.param_dim == 1:
+            import warnings
+            warnings.warn(
+                "MAF with param_dim=1 produces collapsed posteriors (near-zero variance). "
+                "Use MDNEstimator instead for univariate parameter estimation. "
+                "See benchmarks/MNIST_FAILURE_ANALYSIS.md for details.",
+                RuntimeWarning, stacklevel=3
+            )
 
     def _initialize_weights(self, rng: anp.random.RandomState) -> dict:
         """Initializes weights and model constants (masks, permutations)."""
@@ -391,10 +399,20 @@ class MAFEstimator(ConditionalDensityEstimator):
         for k in range(self.n_flows):
             # MADE masks and permutation
             m_in = anp.arange(1, D + 1)
-            m_hidden = rng.randint(1, D, size=H)
+            if D == 1:
+                # D=1 is degenerate for MADE: the autoregressive property is
+                # trivially satisfied.  Use m_hidden=1 so that M1=all-ones
+                # (input reaches hidden) and override M2=all-ones (hidden reaches
+                # output).  Without M2=all-ones, MADE forces zero hidden→output
+                # connections, making the hidden layer useless.
+                m_hidden = anp.ones(H, dtype=int)
+            else:
+                m_hidden = rng.randint(1, D, size=H)
             M1 = (m_in[None, :] <= m_hidden[:, None]).astype('f')
             m_out = m_in.copy()
             M2 = (m_hidden[None, :] < m_out[:, None]).astype('f')
+            if D == 1:
+                M2 = anp.ones_like(M2)  # override: all hiddens connect to output
             perm = rng.permutation(D)
             inv_perm = anp.empty(D, dtype=int); inv_perm[perm] = anp.arange(D)
 

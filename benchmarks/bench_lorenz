@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# benchmark_lorenz — Trains smolcde on Lorenz PSD → parameter recovery.
+# Outputs a single JSON line with metrics to stdout.
+# Usage: bash benchmarks/bench_lorenz --epochs 500 --hidden 64 --blocks 4 --lr 0.0002 --batch 32 --seed 42
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CLI="${SMOLCDE_BIN:-$REPO_ROOT/smolcde}"
+PYTHON="${PYTHON:-$REPO_ROOT/env/bin/python3}"
+OUTDIR="${TMPDIR:-/tmp}/smolcde-bench-lorenz-$$"
+mkdir -p "$OUTDIR"
+
+# Parse args
+EPOCHS=500; HIDDEN=64; BLOCKS=4; LR=0.0002; BATCH=32; SEED=42; N_TRAIN=800; N_TEST=200; SAMPLES=200
+while [[ $# -gt 0 ]]; do
+    case "$1" in --epochs) EPOCHS="$2"; shift 2;; --hidden) HIDDEN="$2"; shift 2;;
+        --blocks) BLOCKS="$2"; shift 2;; --lr) LR="$2"; shift 2;; --batch) BATCH="$2"; shift 2;;
+        --seed) SEED="$2"; shift 2;; --train) N_TRAIN="$2"; shift 2;; --test) N_TEST="$2"; shift 2;;
+        --samples) SAMPLES="$2"; shift 2;; *) shift;;
+    esac
+done
+
+cleanup() { rm -rf "$OUTDIR"; }
+trap cleanup EXIT
+
+# ── Generate data ──
+$PYTHON -c "
+import numpy as np
+from scipy.integrate import odeint
+from scipy.signal import welch
+
+def lorenz_ode(state, t, sigma, rho, beta):
+    x, y, z = state
+    return [sigma*(y-x), x*(rho-z)-y, x*y - beta*z]
+
+t = np.linspace(0, 5, 500)
+fs = 100
+N = $N_TRAIN + $N_TEST
+rng = np.random.RandomState($SEED)
+pl, fl = [], []
+for i in range(N):
+    sigma = rng.uniform(5, 15)
+    rho   = rng.uniform(20, 40)
+    beta  = rng.uniform(1, 5)
+    states = odeint(lorenz_ode, [1.0, 1.0, 1.0], t, args=(sigma, rho, beta))
+    f, Pxx = welch(states[:,0], fs=fs, nperseg=128)
+    pl.append([sigma, rho, beta])
+    fl.append(np.log10(Pxx + 1e-10))
+feat = np.array(fl, dtype=np.float32)
+para = np.array(pl, dtype=np.float32)
+np.savetxt('$OUTDIR/feat_train.csv', feat[:$N_TRAIN], delimiter=',', fmt='%.8f')
+np.savetxt('$OUTDIR/feat_test.csv',  feat[$N_TRAIN:], delimiter=',', fmt='%.8f')
+np.savetxt('$OUTDIR/param_train.csv', para[:$N_TRAIN], delimiter=',', fmt='%.8f')
+np.savetxt('$OUTDIR/param_test.csv',  para[$N_TRAIN:], delimiter=',', fmt='%.8f')
+" 2>/dev/null
+
+# ── Train (capture log for NLL) ──
+TRAIN_START=$(date +%s%N)
+TRAIN_LOG=$($CLI train \
+    --features "$OUTDIR/feat_train.csv" \
+    --params   "$OUTDIR/param_train.csv" \
+    --out      "$OUTDIR/model.maf" \
+    --epochs   "$EPOCHS" --hidden "$HIDDEN" --blocks "$BLOCKS" \
+    --lr       "$LR" --batch "$BATCH" --seed "$SEED" 2>&1)
+TRAIN_END=$(date +%s%N)
+TRAIN_S=$(( (TRAIN_END - TRAIN_START) / 1000000000 ))
+FINAL_NLL=$(echo "$TRAIN_LOG" | grep -oP 'NLL = \K[\-\d.]+' | tail -1 || echo "NA")
+
+# ── Infer ──
+INFER_START=$(date +%s%N)
+$CLI infer --model "$OUTDIR/model.maf" --features "$OUTDIR/feat_test.csv" \
+    --out "$OUTDIR/pred.csv" --mode stats --samples "$SAMPLES" 2>/dev/null
+INFER_END=$(date +%s%N)
+INFER_MS=$(( (INFER_END - INFER_START) / 1000000 ))
+
+# ── Evaluate ──
+EVAL=$($PYTHON -c "
+import numpy as np, csv
+y_true = np.loadtxt('$OUTDIR/param_test.csv', delimiter=',')
+means = []
+with open('$OUTDIR/pred.csv') as f:
+    for i, r in enumerate(csv.DictReader(f)):
+        if r['stat'] == 'mean':
+            means.append([float(r['p0']), float(r['p1']), float(r['p2'])])
+ma = np.array(means)
+assert len(ma) == len(y_true), f'{len(ma)} != {len(y_true)}'
+mae_sig  = np.mean(np.abs(y_true[:,0] - ma[:,0]))
+mae_rho  = np.mean(np.abs(y_true[:,1] - ma[:,1]))
+mae_beta = np.mean(np.abs(y_true[:,2] - ma[:,2]))
+mae_avg  = (mae_sig + mae_rho + mae_beta) / 3.0
+corr_sig  = np.corrcoef(y_true[:,0], ma[:,0])[0,1]
+corr_rho  = np.corrcoef(y_true[:,1], ma[:,1])[0,1]
+corr_beta = np.corrcoef(y_true[:,2], ma[:,2])[0,1]
+corr_avg  = (corr_sig + corr_rho + corr_beta) / 3.0
+print(f'{len(y_true)} {mae_sig:.4f} {mae_rho:.4f} {mae_beta:.4f} {mae_avg:.4f} {corr_sig:.4f} {corr_rho:.4f} {corr_beta:.4f} {corr_avg:.4f}')
+" 2>/dev/null)
+read -r N_EVAL MAE_SIG MAE_RHO MAE_BETA MAE_AVG CORR_SIG CORR_RHO CORR_BETA CORR_AVG <<< "$EVAL"
+
+# ── Output JSON ──
+cat <<JSON
+{
+  "dataset": "lorenz",
+  "epochs": $EPOCHS,
+  "hidden": $HIDDEN,
+  "blocks": $BLOCKS,
+  "lr": $LR,
+  "batch": $BATCH,
+  "seed": $SEED,
+  "n_train": $N_TRAIN,
+  "n_eval": $N_EVAL,
+  "mae_sigma": $MAE_SIG,
+  "mae_rho": $MAE_RHO,
+  "mae_beta": $MAE_BETA,
+  "mae_avg": $MAE_AVG,
+  "corr_sigma": $CORR_SIG,
+  "corr_rho": $CORR_RHO,
+  "corr_beta": $CORR_BETA,
+  "corr_avg": $CORR_AVG,
+  "final_nll": "$FINAL_NLL",
+  "train_time_s": $TRAIN_S,
+  "infer_time_ms": $INFER_MS
+}
+JSON

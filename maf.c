@@ -878,7 +878,7 @@ maf_model_t *maf_init_random_model(uint16_t n_flows, uint16_t param_dim,
       if (D > 1)
         m_h[j] = (rand() % (D - 1)) + 1;
       else
-        m_h[j] = 0;
+        m_h[j] = 1;  /* D=1: all hiddens get degree 1, matching MADE convention */
     }
 
     /* 3. Build Masks */
@@ -905,7 +905,9 @@ maf_model_t *maf_init_random_model(uint16_t n_flows, uint16_t param_dim,
       int m_out = d + 1;
       /* Iterate hidden units */
       for (int j = 0; j < H; j++) {
-        float val = (m_h[j] < m_out) ? 1.0f : 0.0f;
+        /* D=1: autoregressive property is trivially satisfied;
+           all hidden units connect to output (M2 = all ones). */
+        float val = (D == 1 || m_h[j] < m_out) ? 1.0f : 0.0f;
         t_M2[k * D * H + d * H + j] = val;
         t_W2[k * 2 * D * H + d * H + j] = maf_rand_f() * 0.01f;
         t_W2[k * 2 * D * H + (D + d) * H + j] = maf_rand_f() * 0.01f;
