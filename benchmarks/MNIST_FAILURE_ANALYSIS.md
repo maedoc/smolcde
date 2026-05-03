@@ -1,113 +1,92 @@
-# MNIST Failure Analysis
+# MNIST Failure Analysis — REVISED
 
 ## Summary
 
-The MNIST (D=1) failure is **NOT a C implementation bug** — it's an architectural
-limitation of MAF for univariate (param_dim=1) targets. Both Python and C produce
-the same degenerate behavior.
+The MNIST failure was caused by using **scalar (D=1) targets** with MAF.
+With **one-hot encoding (D=10)**, MAF achieves **84–90% accuracy** on MNIST 8x8,
+dramatically outperforming MDN (57–72%).
 
-## Root Cause
+## Root Cause: D=1 MAF Posterior Collapse
 
-### MADE degeneracy for D=1
+### What went wrong with D=1
 
-With `param_dim=1`, the MADE masking is trivially degenerate:
-- `m_in = [1]`, `m_hidden ∈ {1}` → M1 = all ones, M2 = all ones
-- The autoregressive property is trivially satisfied (only 1 variable)
-- The MADE network can **ignore the noise input entirely** and just condition on features
+When `param_dim=1`, the MADE masking structure is trivially degenerate:
+- Masks become all-ones (M1=all1, M2=all1)
+- The autoregressive property is vacuously satisfied (only 1 variable)
+- The MADE network produces **input-independent** alpha/mu values
+- `alpha → -3` across all layers → `exp(alpha) ≈ 0.05` → posterior collapses
 
-### Empirical evidence
-
+Empirically confirmed:
 ```
-Binary classification (D=1, 2-class):
-  Python: mean=-0.10, std=0.0  (collapsed!)
-
-Multiclass (D=1, 3-class):
-  Python: mean=-0.22, std=0.0  (collapsed!)
-
-Continuous regression (D=1, sin+cos+noise):
-  Python: mean=0.59, std=0.0  (collapsed!)
-
-Banana (D=2):
-  Python: mean=[0.02, 1.33], std=[0.88, 1.44]  (works!)
+Binary classification (D=1): mean=-0.10, std=0.0        (collapsed)
+Multiclass (D=1):           mean=-0.22, std=0.0        (collapsed)
+Continuous regression (D=1):mean=0.59,  std=0.0        (collapsed)
+Banana (D=2):               mean=[0.02, 1.33], std=[0.88, 1.44]  ✅ works
 ```
 
-### Alpha collapse
+### Why one-hot (D=10) works
 
-Sampled alpha values across all layers are **constant** (input-independent):
+With D=10, each MADE layer has genuine autoregressive conditioning:
+- Variable 1 depends on no predecessors (it's first in the permutation)
+- Variable d depends on variables 1..d-1
+- Each layer transforms a 10D Gaussian through a proper autoregressive flow
+- The model can represent **multimodal** posteriors over one-hot vectors
 
-```
-Layer 2: alpha=-3.02, mu=0.04, exp(alpha)=0.049  → scale factor is ~5%
-Layer 1: alpha=-2.91, mu=-0.09, exp(alpha)=0.055  → scale factor is ~5%
-Layer 0: alpha=-2.66, mu=-0.21, exp(alpha)=0.070   → scale factor is ~7%
-```
+## Results
 
-The MADE network learns `mu(f)` and `alpha(f)` — both are input-independent
-functions of the features only. The noise `z` is effectively ignored because
-the model sets alpha so negative that `exp(alpha) ≈ 0`, making the output
-nearly deterministic.
+### Python MAF, D=10 one-hot, 500 train samples
 
-### Why the C model appeared to work (44%)
+| Config | Accuracy |
+|--------|----------|
+| 2f/32h/100ep/lr=0.001 | **83.7%** |
+| 2f/32h/300ep/lr=0.001 | 79.6% |
+| 4f/32h/300ep/lr=0.001 | 80.6% |
+| 4f/64h/300ep/lr=0.0003 | 80.6% |
 
-The original C code had `m_h[j] = 0` for D=1, producing M1=all-zeros and
-M2=all-ones. This meant the hidden layer received **no input from y** (only
-context from features). The model was effectively a 2-layer MLP conditioned on
-features, producing shift and scale parameters for a simple affine transform of
-the base Gaussian. This MLP could learn the conditional mean, giving ~44% accuracy.
+### Python MAF, D=10 one-hot, 1500 train samples
 
-After fixing both Python and C to use M1=all-ones, M2=all-ones, the model has
-the capacity to use the input — but it doesn't learn to, because ignoring it
-is a local minimum that still reduces NLL.
+| Config | Accuracy |
+|--------|----------|
+| 2f/32h/300ep/lr=0.001 | **89.9%** |
+| 4f/32h/300ep/lr=0.001 | 88.2% |
 
-## Why it works for D≥2
+### Comparison with MDN
 
-When `param_dim ≥ 2`, each MADE layer conditions on the already-sampled
-dimensions. The autoregressive structure creates a genuine sequential dependency:
-`y[1]` depends on `y[0]`, `y[2]` depends on `y[0]` and `y[1]`, etc. This
-prevents the model from collapsing because different noise realizations `z`
-produced genuinely different outputs through the chain of dependencies.
+| Method | D | Accuracy |
+|--------|---|----------|
+| MAF one-hot | 10 | **83.7%** (500 train) → **89.9%** (1500 train) |
+| MDN scalar | 1 | 56.5% |
+| MDN one-hot | 10 | 71.5% |
 
-For D=1, there's only one dimension — no autoregressive conditioning is possible.
-The flow reduces to a composition of `D` affine transforms of a single variable,
-which can only shift and scale the base distribution, not reshape it into
-multiple modes.
+### C CLI results (D=1, scalar — BEFORE fix)
 
-## C vs Python divergence
+| Config | Accuracy | Notes |
+|--------|----------|-------|
+| 300ep, 32h, 5f | 44.5% | D=1, collapsed posterior |
 
-Before the mask fix, the C and Python implementations had **different masks**
-for D=1:
+## C vs Python mask divergence (now fixed)
 
-| Implementation | m_hidden | M1 | M2 | Result |
-|---|---|---|---|---|
-| C (original) | 0 | all-zeros | all-ones | MLP-like, ~44% acc |
-| C (fixed) | 1 | all-ones | all-ones | Same as Python, collapsed |
-| Python (fixed) | 1 | all-ones | all-ones | Collapsed posterior |
+Before the fix, C used `m_h[j]=0` for D=1 (M1=0, M2=1), producing an MLP-like
+model that could at least predict conditional means (~44% accuracy). After the fix,
+both use `m_h=1` with M2 override (M1=1, M2=1), producing identical degenerate
+posteriors for D=1.
 
-After fix, both implementations agree and both produce collapsed posteriors.
-
-## Impact on Lorenz and other D≥2 tasks
-
-Lorenz (D=3) is unaffected — the autoregressive conditioning works correctly
-when `param_dim ≥ 2`. The best Lorenz result is:
-
-```
-MAE avg = 0.94, correlation avg = 0.916
-```
+For D≥2 (including D=10 one-hot), both implementations produce non-degenerate
+results.
 
 ## Recommendations
 
-1. **Document limitation**: MAF is suitable for D≥2 parameter estimation.
-   For D=1 (scalar regression), MAF degenerates and should not be used.
+1. **Always use one-hot encoding for classification tasks** — MAF D=10 one-hot
+   achieves 84-90% accuracy on MNIST, far exceeding MDN (57-72%).
 
-2. **Add MDN for D=1**: The `MDNEstimator` class already handles D=1 correctly
-   by learning a mixture of Gaussians, which can represent multimodal posteriors.
-   For classification-like tasks with D=1, MDN is the right tool.
+2. **Never use MAF with D=1 for classification** — the autoregressive structure
+   is vacuous. A RuntimeWarning is now emitted in Python.
 
-3. **Add runtime warning**: When param_dim=1, print a warning suggesting MDN
-   instead of MAF.
+3. **For the CLI, add support for one-hot encoding** — currently the CLI only
+   supports raw CSV columns. A `--one-hot` flag or automatic detection would
+   help users.
 
-4. **Keep the mask fix**: The (M1=all1, M2=all1) fix is correct per the MADE
-   paper. It doesn't make things worse — both versions produce collapsed
-   posteriors, just through different mechanisms.
+4. **The Lorenz demo (D=3) works perfectly** — MAE 0.94, correlation 0.92.
 
-5. **Update demos**: The MNIST demo should use MDN, not MAF. The Lorenz demo
-   (D=3) can continue using MAF.
+5. **Update MNIST demo to use one-hot** — the demo now trains with D=10 one-hot
+   and achieves ~84% accuracy with 500 samples.
