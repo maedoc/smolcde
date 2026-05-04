@@ -1,9 +1,6 @@
 import numpy as np
-import sys
 import os
 import subprocess
-import glob
-import tempfile
 from pathlib import Path
 import ctypes
 from cde import MDNEstimator, MAFEstimator, generate_test_data
@@ -109,7 +106,7 @@ def test_error_handling():
     except ValueError:
         pass
     try:
-        maf = MAFEstimator(param_dim=1, feature_dim=-1)
+        MAFEstimator(param_dim=1, feature_dim=-1)
         assert False, "Should raise ValueError for invalid feature_dim"
     except ValueError:
         pass
@@ -798,7 +795,10 @@ def test_c_log_prob():
 
     def arr(x): return np.asarray(x, dtype=np.float32).flatten()
     c_weights = maf_weights_t()
-    c_weights.n_flows = 1; c_weights.param_dim = D; c_weights.feature_dim = C; c_weights.hidden_units = H
+    c_weights.n_flows = 1
+    c_weights.param_dim = D
+    c_weights.feature_dim = C
+    c_weights.hidden_units = H
     c_weights.M1_data = arr(layer['M1']).ctypes.data_as(ctypes.POINTER(ctypes.c_float))
     c_weights.M2_data = arr(layer['M2']).ctypes.data_as(ctypes.POINTER(ctypes.c_float))
     c_weights.perm_data = arr(layer['perm'].astype(np.uint16)).ctypes.data_as(ctypes.POINTER(ctypes.c_uint16))

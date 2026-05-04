@@ -8,7 +8,7 @@ __version__ = "0.2.0"
 
 import abc
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import autograd.numpy as anp
 from autograd import grad
@@ -416,7 +416,8 @@ class MAFEstimator(ConditionalDensityEstimator):
             if D == 1:
                 M2 = anp.ones_like(M2)  # override: all hiddens connect to output
             perm = rng.permutation(D)
-            inv_perm = anp.empty(D, dtype=int); inv_perm[perm] = anp.arange(D)
+            inv_perm = anp.empty(D, dtype=int)
+            inv_perm[perm] = anp.arange(D)
 
             layers.append({'M1': M1, 'M2': M2, 'perm': perm, 'inv_perm': inv_perm})
 
@@ -478,7 +479,6 @@ class MAFEstimator(ConditionalDensityEstimator):
         if features.ndim == 1:
             features = features.reshape(1, -1)
 
-        n_cond = features.shape[0]
         # Broadcast features to match number of samples
         features = anp.repeat(features, n_samples, axis=0)
 
