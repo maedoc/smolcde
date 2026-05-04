@@ -145,6 +145,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
-          generate_release_notes: true
+          body_path: RELEASE_NOTES_v0.2.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
