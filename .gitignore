@@ -25,4 +25,7 @@ tmp_*.csv
 # Experiment output
 results_*.jsonl
 
+# Build artifacts
 *.egg-info/
+dist/
+
