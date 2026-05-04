@@ -1538,3 +1538,12 @@ def test_c_sample_feature_dim_zero():
     assert np.all(np.isfinite(samples)), "Samples contain NaN/Inf"
 
     lib.maf_free_model(model)
+
+
+def test_cli_version():
+    """Verify --version and -v print version and exit 0."""
+    cli = _require_cli()
+    for flag in ["--version", "-v"]:
+        result = subprocess.run([cli, flag], capture_output=True, text=True)
+        assert result.returncode == 0, f"{flag} returned {result.returncode}"
+        assert "0.2.0" in result.stdout, f"Expected version in output, got: {result.stdout}"

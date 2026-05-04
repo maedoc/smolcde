@@ -11,7 +11,7 @@ build:
 	-cp build/smolcde . 2>/dev/null
 
 test: build
-	$(PYTHON) -m pytest test_cde.py -v
+	$(PYTHON) -m pytest test_cde.py -v -n auto
 
 clean:
 	-cmake --build build --target clean 2>/dev/null || rm -rf build
