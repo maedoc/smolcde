@@ -22,3 +22,6 @@ test_*.csv
 demo_*.csv
 tmp_*.csv
 
+# Experiment output
+results_*.jsonl
+

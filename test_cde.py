@@ -401,17 +401,7 @@ def test_c_gradient_matches_autograd():
         test_f.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         test_p.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
 
-    # Read C gradients back as numpy arrays
-    # The grad struct has dW1y, dW1c, db1, dW2, dW2c, db2 per layer
-    c_grad_layer0 = trainer.lib.maf_create_grad(c_model)  # hack: read from c_grad
-    # Actually, c_grad is already populated. We need to read its fields.
-    # Access via ctypes pointer arithmetic - the layer grads are at c_grad + offset
-    # Simpler: we know the struct layout, read raw bytes
-    # maf_grad_t: { uint16_t n_flows; maf_layer_grad_t* layers }
-    # maf_layer_grad_t: { float* dW1y, dW1c, db1, dW2, dW2c, db2 }
-
-    # We need to read the pointer array from c_grad->layers
-    # Let's define the structs
+    # Read C gradients back — cast c_grad pointer to struct
     class maf_layer_grad_t(ctypes.Structure):
         _fields_ = [
             ("dW1y", ctypes.POINTER(ctypes.c_float)),
@@ -866,8 +856,11 @@ def test_mnist_cli_workflow(tmp_path):
     X_scaled = scaler.fit_transform(X)
 
     n_train = 496  # multiple of 8 for C batching
+    n_test = 104   # held-out test samples
     X_train = X_scaled[:n_train]
+    X_test = X_scaled[n_train:n_train+n_test]
     y_train_int = y[:n_train]
+    y_test_int = y[n_train:n_train+n_test]
 
     # One-hot encode with small noise for numerical stability
     rng = np.random.RandomState(42)
@@ -877,11 +870,13 @@ def test_mnist_cli_workflow(tmp_path):
 
     feat_file = tmp_path / "features.csv"
     param_file = tmp_path / "params.csv"
+    feat_test_file = tmp_path / "features_test.csv"
     model_file = tmp_path / "mnist.maf"
     pred_file = tmp_path / "predictions.csv"
 
     save_csv(X_train, feat_file)
     save_csv(y_oh, param_file)
+    save_csv(X_test, feat_test_file)
 
     # Train with 2 flows (D=10 works well with fewer flows)
     result = subprocess.run([cli, "train",
@@ -901,10 +896,10 @@ def test_mnist_cli_workflow(tmp_path):
     assert result.returncode == 0, "Training failed"
     assert model_file.exists(), "Model file not created"
 
-    # Infer stats
+    # Infer stats on held-out test data
     result = subprocess.run([cli, "infer",
                               "--model", str(model_file),
-                              "--features", str(feat_file),
+                              "--features", str(feat_test_file),
                               "--out", str(pred_file),
                               "--mode", "stats",
                               "--samples", "64"],
@@ -925,12 +920,12 @@ def test_mnist_cli_workflow(tmp_path):
     assert len(means) > 0, "No predictions produced"
     assert np.all(np.isfinite(means)), "Predictions contain NaN/Inf"
 
-    # Compute accuracy: argmax of posterior mean → predicted digit
+    # Compute accuracy on held-out test data: argmax of posterior mean → predicted digit
     y_pred = np.argmax(means, axis=1)
-    y_true = y_train_int[:len(means)]
+    y_true = y_test_int[:len(means)]
     accuracy = np.mean(y_true == y_pred)
     print(f"MNIST MAF (D=10 one-hot) Accuracy: {accuracy:.3f}")
-    assert accuracy > 0.60, f"Accuracy {accuracy:.3f} too low"
+    assert accuracy > 0.60, f"Accuracy {accuracy:.3f} too low on held-out test set"
 
 
 def test_mnist_mdn_accuracy():
@@ -965,3 +960,94 @@ def test_mnist_mdn_accuracy():
 
     print(f"MNIST MDN (D=1) Accuracy: {accuracy:.3f}")
     assert accuracy > 0.50, f"MDN accuracy {accuracy:.3f} should exceed 50% on MNIST"
+
+
+# ==============================================================================
+# NEW: Feature-dim=0 backward pass (unconditional density estimation)
+# ==============================================================================
+
+def test_c_backward_feature_dim_zero():
+    """
+    Verify maf_backward handles feature_dim=0 (no conditional features).
+    The fix in maf.c allocates a 1-byte sentinel for feat_perm when C==0
+    to avoid malloc(0) which may return NULL.
+    """
+    lib_path = _require_lib()
+    lib = ctypes.CDLL(lib_path)
+    lib.maf_init_random_model.argtypes = [ctypes.c_uint16] * 4
+    lib.maf_init_random_model.restype = ctypes.c_void_p
+    lib.maf_create_workspace.argtypes = [ctypes.c_void_p]
+    lib.maf_create_workspace.restype = ctypes.c_void_p
+    lib.maf_create_cache.argtypes = [ctypes.c_void_p]
+    lib.maf_create_cache.restype = ctypes.c_void_p
+    lib.maf_create_grad.argtypes = [ctypes.c_void_p]
+    lib.maf_create_grad.restype = ctypes.c_void_p
+    lib.maf_zero_grad.argtypes = [ctypes.c_void_p] * 2
+    lib.maf_forward_train.argtypes = [ctypes.c_void_p] * 3 + [ctypes.POINTER(ctypes.c_float)] * 2
+    lib.maf_forward_train.restype = ctypes.c_float
+    lib.maf_backward.argtypes = [ctypes.c_void_p] * 3 + [ctypes.POINTER(ctypes.c_float)] * 2
+    lib.maf_free_model.argtypes = [ctypes.c_void_p]
+    lib.maf_free_workspace.argtypes = [ctypes.c_void_p]
+    lib.maf_free_cache.argtypes = [ctypes.c_void_p]
+    lib.maf_free_grad.argtypes = [ctypes.c_void_p]
+
+    # Unconditional density: D=2, C=0, H=4, 1 flow
+    model = lib.maf_init_random_model(1, 2, 0, 4)
+    assert model is not None, "Failed to create model with C=0"
+
+    ws = lib.maf_create_workspace(model)
+    cache = lib.maf_create_cache(model)
+    grad = lib.maf_create_grad(model)
+    assert ws and cache and grad, "Failed to create aux structs"
+
+    # Synthetic 2D params for a batch of 8
+    params = np.random.randn(8, 2).astype(np.float32)
+    features = np.zeros((8, 0), dtype=np.float32)  # empty feature array
+
+    lib.maf_zero_grad(model, grad)
+    loss = lib.maf_forward_train(model, ws, cache, features.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                  params.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
+    assert np.isfinite(loss), f"Forward pass produced non-finite loss: {loss}"
+
+    lib.maf_backward(model, cache, grad, features.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                      params.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
+    # Reaching here without crash = success
+
+    lib.maf_free_workspace(ws)
+    lib.maf_free_cache(cache)
+    lib.maf_free_grad(grad)
+    lib.maf_free_model(model)
+
+
+# ==============================================================================
+# NEW: CLI error handling for bad model file
+# ==============================================================================
+
+def test_cli_bad_model_file(tmp_path):
+    """
+    Verify CLI prints error (not segfault) when loading a nonexistent
+    or invalid model file, rather than calling exit(1).
+    The CLI returns 0 on handled errors; the critical fix is that
+    load_model_file returns NULL instead of crashing the process.
+    """
+    cli = _require_cli()
+
+    # Try loading a nonexistent model file
+    result = subprocess.run([cli, "infer", "--model", str(tmp_path / "nonexistent.maf"),
+                              "--features", str(tmp_path / "dummy.csv"),
+                              "--out", str(tmp_path / "out.csv")],
+                             capture_output=True, text=True)
+    combined = (result.stderr + result.stdout).lower()
+    assert "error" in combined, f"Expected error message, got: {result.stderr}{result.stdout}"
+    assert result.returncode != 0, f"Expected non-zero exit for bad model, got {result.returncode}"
+
+    # Try loading a file with wrong magic bytes
+    bad_file = tmp_path / "bad.maf"
+    bad_file.write_text("not a valid maf model")
+    result = subprocess.run([cli, "infer", "--model", str(bad_file),
+                              "--features", str(tmp_path / "dummy.csv"),
+                              "--out", str(tmp_path / "out.csv")],
+                             capture_output=True, text=True)
+    combined = (result.stderr + result.stdout).lower()
+    assert "error" in combined, f"Expected error for invalid magic, got: {result.stderr}"
+    assert result.returncode != 0, f"Expected non-zero exit for bad magic, got {result.returncode}"

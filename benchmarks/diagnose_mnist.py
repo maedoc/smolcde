@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""diagnose_mnist.py — Compare Python vs C MAF on MNIST and simpler classification tasks.
+"""diagnose_mnist.py — Compare Python vs C MAF on MNIST and simpler tasks.
 
-Investigates:
-1. Does the Python MAF also suffer posterior explosion on MNIST?
-2. If not, where does the C implementation diverge?
-3. Do simpler discrete-target problems show the same pathology?
+Exploratory diagnostic tool that helped isolate the D=1 MAF posterior collapse.
+Core findings now documented in benchmarks/MNIST_FAILURE_ANALYSIS.md.
+
+Keep this script as infrastructure for future regression diagnosis; it
+is not a production benchmark and may contain exploratory/debug code.
 """
 
 import sys, os, csv, tempfile, subprocess, json

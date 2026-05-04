@@ -315,7 +315,7 @@ void print_help_train() {
   printf("  --skip-header        Skip first line of CSV files\n");
 }
 
-void cmd_train(int argc, char **argv) {
+int cmd_train(int argc, char **argv) {
   char *feat_file = NULL, *param_file = NULL, *out_file = "model.maf",
        *load_file = NULL;
   int hidden = 16, blocks = 5, epochs = 100, batch_size = 32;
@@ -354,13 +354,13 @@ void cmd_train(int argc, char **argv) {
   if (!feat_file || !param_file) {
     fprintf(stderr, "Error: --features and --params required\n");
     print_help_train();
-    exit(1);
+    return 1;
   }
 
   if (batch_size % MAF_BATCH_SIZE != 0) {
     fprintf(stderr, "Error: Batch size must be a multiple of %d\n",
             MAF_BATCH_SIZE);
-    exit(1);
+    return 1;
   }
 
   printf("Loading data...\n");
@@ -369,7 +369,7 @@ void cmd_train(int argc, char **argv) {
 
   if (F->rows != P->rows) {
     fprintf(stderr, "Error: Row mismatch F:%d P:%d\n", F->rows, P->rows);
-    exit(1);
+    return 1;
   }
 
   if (F->rows % MAF_BATCH_SIZE != 0) {
@@ -387,7 +387,7 @@ void cmd_train(int argc, char **argv) {
     model = load_model_file(load_file);
     if (!model) {
       fprintf(stderr, "Error loading model from %s\n", load_file);
-      exit(1);
+      return 1;
     }
   } else {
     model = maf_init_random_model(blocks, P->cols, F->cols, hidden);
@@ -395,7 +395,7 @@ void cmd_train(int argc, char **argv) {
 
   if (!model) {
     fprintf(stderr, "Error initializing model\n");
-    exit(1);
+    return 1;
   }
 
   maf_workspace_t *ws = maf_create_workspace(model);
@@ -494,6 +494,7 @@ void cmd_train(int argc, char **argv) {
     maf_free_model(model);
   free_dataset(F);
   free_dataset(P);
+  return 0;
 }
 
 void print_help_infer() {
@@ -511,7 +512,7 @@ void print_help_infer() {
   printf("  --skip-header        Skip first line of feature CSV\n");
 }
 
-void cmd_infer(int argc, char **argv) {
+int cmd_infer(int argc, char **argv) {
   char *model_file = NULL, *feat_file = NULL, *out_file = "out.csv";
   char *mode = "sample";
   char *q_list = "0.05,0.5,0.95";
@@ -556,7 +557,7 @@ void cmd_infer(int argc, char **argv) {
   maf_model_t *model = load_model_file(model_file);
   if (!model) {
     fprintf(stderr, "Error: Failed to load model from %s\n", model_file);
-    return;
+    return 1;
   }
   Dataset *F = load_csv(feat_file, skip);
 
@@ -667,6 +668,7 @@ void cmd_infer(int argc, char **argv) {
   free(samples);
   fclose(fout);
   free_dataset(F);
+  return 0;
 }
 
 void print_help() {
@@ -689,14 +691,12 @@ int main(int argc, char **argv) {
   }
 
   if (!strcmp(argv[1], "train"))
-    cmd_train(argc - 1, argv + 1);
+    return cmd_train(argc - 1, argv + 1);
   else if (!strcmp(argv[1], "infer"))
-    cmd_infer(argc - 1, argv + 1);
+    return cmd_infer(argc - 1, argv + 1);
   else {
     printf("Unknown command %s\n", argv[1]);
     print_help();
     return 1;
   }
-
-  return 0;
 }
