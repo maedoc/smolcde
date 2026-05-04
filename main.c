@@ -11,6 +11,7 @@
 
 #define MAX_LINE_LEN 65536
 #define MAX_TOKENS 4096
+#define VERSION "0.2.0"
 
 /* ========================================================================== */
 /* CSV Utilities                                                              */
@@ -687,6 +688,11 @@ int main(int argc, char **argv) {
 
   if (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")) {
     print_help();
+    return 0;
+  }
+
+  if (!strcmp(argv[1], "--version") || !strcmp(argv[1], "-v")) {
+    printf("smolcde %s\n", VERSION);
     return 0;
   }
 
