@@ -3,6 +3,13 @@ name: ci
 on:
   push:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build ${{ matrix.target_name }}
@@ -145,6 +152,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
-          body_path: RELEASE_NOTES_v0.2.md
+          body_path: RELEASE_NOTES_${{ github.ref_name }}.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
