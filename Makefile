@@ -1,4 +1,4 @@
-.PHONY: all build test clean install dev
+.PHONY: all build test clean install dev lint
 
 PYTHON ?= python3
 
@@ -22,3 +22,7 @@ install:
 	pip install -e ".[dev]"
 
 dev: install test
+
+lint:
+	$(PYTHON) -m ruff check cde.py test_cde.py
+	$(PYTHON) -m ruff format --check cde.py test_cde.py

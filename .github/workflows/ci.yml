@@ -70,7 +70,13 @@ jobs:
     - name: Install Python dependencies (Linux Native Only)
       if: matrix.os == 'ubuntu-latest' && matrix.cross != true
       run: |
-        pip install pytest scipy autograd scikit-learn tqdm
+        pip install pytest scipy autograd scikit-learn tqdm ruff
+
+    - name: Lint Python (Linux Native Only)
+      if: matrix.os == 'ubuntu-latest' && matrix.cross != true
+      run: |
+        ruff check cde.py test_cde.py
+        ruff format --check cde.py test_cde.py
 
     - name: Run tests (Linux Native Only)
       if: matrix.os == 'ubuntu-latest' && matrix.cross != true

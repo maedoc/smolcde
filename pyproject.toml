@@ -33,6 +33,7 @@ dev = [
     "pytest",
     "scikit-learn",
     "tqdm",
+    "ruff",
 ]
 
 [project.urls]
