@@ -1,8 +1,0 @@
-numpy
-scipy
-autograd
-
-[dev]
-pytest
-scikit-learn
-tqdm

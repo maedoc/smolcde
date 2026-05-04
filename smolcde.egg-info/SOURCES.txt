@@ -1,8 +1,0 @@
-README.md
-cde.py
-pyproject.toml
-smolcde.egg-info/PKG-INFO
-smolcde.egg-info/SOURCES.txt
-smolcde.egg-info/dependency_links.txt
-smolcde.egg-info/requires.txt
-smolcde.egg-info/top_level.txt
