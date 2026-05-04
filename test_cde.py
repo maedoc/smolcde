@@ -1546,4 +1546,6 @@ def test_cli_version():
     for flag in ["--version", "-v"]:
         result = subprocess.run([cli, flag], capture_output=True, text=True)
         assert result.returncode == 0, f"{flag} returned {result.returncode}"
-        assert "0.2.0" in result.stdout, f"Expected version in output, got: {result.stdout}"
+        assert "0.2.0" in result.stdout, (
+            f"Expected version in output, got: {result.stdout}"
+        )
