@@ -1051,3 +1051,37 @@ def test_cli_bad_model_file(tmp_path):
     combined = (result.stderr + result.stdout).lower()
     assert "error" in combined, f"Expected error for invalid magic, got: {result.stderr}"
     assert result.returncode != 0, f"Expected non-zero exit for bad magic, got {result.returncode}"
+
+
+# ==============================================================================
+# NEW: Sampling with feature_dim=0 (unconditional density)
+# ==============================================================================
+
+def test_c_sample_feature_dim_zero():
+    """
+    Verify maf_sample handles feature_dim=0 (unconditional sampling).
+    """
+    lib_path = _require_lib()
+    lib = ctypes.CDLL(lib_path)
+    lib.maf_init_random_model.argtypes = [ctypes.c_uint16] * 4
+    lib.maf_init_random_model.restype = ctypes.c_void_p
+    lib.maf_sample.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float),
+                                  ctypes.c_uint32, ctypes.POINTER(ctypes.c_float),
+                                  ctypes.c_uint32]
+    lib.maf_sample.restype = ctypes.c_int
+    lib.maf_free_model.argtypes = [ctypes.c_void_p]
+
+    # Unconditional density: D=2, C=0, H=4, 1 flow
+    model = lib.maf_init_random_model(1, 2, 0, 4)
+    assert model is not None
+
+    n_samples = 8
+    features = np.zeros((0,), dtype=np.float32)  # empty feature vector
+    samples = np.zeros((n_samples * 2,), dtype=np.float32)
+
+    ret = lib.maf_sample(model, features.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                          n_samples, samples.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), 42)
+    assert ret == 0, f"maf_sample returned error {ret}"
+    assert np.all(np.isfinite(samples)), "Samples contain NaN/Inf"
+
+    lib.maf_free_model(model)
