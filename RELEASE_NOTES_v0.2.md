@@ -45,7 +45,7 @@
 
 ### Infrastructure
 - CMake builds CLI statically (no shared-lib dependency for the binary)
-- CI matrix: linux-x86_64, linux-aarch64, macos-x86_64, macos-arm64, windows-x86_64
+- CI matrix: linux-x86_64, linux-aarch64, macos-arm64, windows-x86_64
 - Shared libraries bundled in artifacts for Python users (`libsmolmaf.{so,dylib}`, `smolmaf.dll`)
 - Push `v*` tag → auto-creates GitHub Release with all binaries + `cde.py` + README
 - `.gitignore` excludes model files, temp CSVs, experiment output

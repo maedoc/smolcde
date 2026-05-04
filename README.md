@@ -74,6 +74,12 @@ release bundles:
 - `cde.py` — drop-in Python module
 - `README.md`
 
+> **Note:** Prebuilt macOS binaries are Apple Silicon (arm64) only.
+> Intel Mac users can build from source with `cmake` and `make`.
+
+> **Note:** Prebuilt macOS binaries are Apple Silicon (arm64) only.
+> Intel Mac users can build from source with `cmake` and `make`.
+
 ## Demos
 
 ```bash
