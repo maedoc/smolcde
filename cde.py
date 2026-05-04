@@ -4,6 +4,8 @@ Networks (MDNs) and Masked Autoregressive Flows (MAFs).
 
 """
 
+__version__ = "0.2.0"
+
 import abc
 import math
 from dataclasses import dataclass, field
